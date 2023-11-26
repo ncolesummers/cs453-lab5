@@ -134,10 +134,11 @@ if __name__ == "__main__":
     exec.add_node(roomba)
     exec.add_node(sensor)
     start = "S"
-    drive_key = KeyCode(char=start)
+    key_callback = print(f"Pressed {start}")
+    # key_callback = roomba.drive
     keycom = KeyCommander(
         [
-            (drive_key, roomba.drive),
+            (KeyCode(char=start), key_callback),
         ]
     )
     print(f"Press '{start}' to start")
