@@ -9,7 +9,13 @@ from builtin_interfaces.msg import Duration
 
 # Create3 packages
 import irobot_create_msgs
-from irobot_create_msgs.action import AudioNoteSequence, DriveDistance, RotateAngle, Undock
+from irobot_create_msgs.action import (
+    AudioNoteSequence,
+    DriveDistance,
+    IrOpcode,
+    RotateAngle,
+    Undock,
+)
 from irobot_create_msgs.msg import AudioNote, AudioNoteVector, DockStatus
 
 # Python packages
@@ -17,6 +23,22 @@ import os
 import time
 
 from toBool import to_bool
+from randomAngle import random_angle
+
+OPCODES = {
+    "FORCE_FIELD": 161,
+    "VIRTUAL_WALL": 162,
+    "BUOY_GREEN": 164,
+    "BUOY_RED": 168,
+    "BUOY_BOTH": 172,
+    "EVAC_GREEN_FIELD": 244,
+    "EVAC_RED_FIELD": 248,
+    "EVAC_BOTH_FIELD": 252,
+    "SENSOR_OMNI": 0,
+    "SENSOR_DIRECTIONAL_FRONT": 1,
+}
+
+HISTORY_SIZE = 3
 
 
 class Roomba(Node):
@@ -26,6 +48,7 @@ class Roomba(Node):
         self._is_docked = None
         self._is_dock_visible = None
         self._busy = False
+        self._last_ir_opcode = None
 
         # Callback Groups
         cb_subscriptions = MutuallyExclusiveCallbackGroup()
@@ -33,11 +56,21 @@ class Roomba(Node):
         cb_notes = MutuallyExclusiveCallbackGroup()
 
         # Subscriptions
+        # docking status
         self.subscription = self.create_subscription(
             DockStatus,
             "/check_dock_status",
-            self.listener_callback,
-            10,
+            self.dock_status_callback,
+            HISTORY_SIZE,
+            callback_group=cb_subscriptions,
+        )
+
+        # ir opcodes
+        self.subscription = self.create_subscription(
+            IrOpcode,
+            f"/{ns}/ir_opcode",
+            self.ir_opcode_callback,
+            HISTORY_SIZE,
             callback_group=cb_subscriptions,
         )
 
@@ -56,8 +89,8 @@ class Roomba(Node):
         # Rotate
         self.rotate_ac = ActionClient(
             self,
-            DriveDistance,
-            f"/{ns}/rotate",
+            RotateAngle,
+            f"/{ns}/rotate_angle",
             callback_group=cb_actions,
         )
         # Audio
@@ -113,12 +146,35 @@ class Roomba(Node):
         """
         self._busy = value
 
-    def listener_callback(self, msg):
+    @property
+    def last_ir_opcode(self) -> int:
+        """
+        Returns the last ir opcode received by the robot
+        """
+        return self._last_ir_opcode
+
+    @last_ir_opcode.setter
+    def last_ir_opcode(self, value):
+        """
+        Sets the last ir opcode received by the robot
+        """
+        self._last_ir_opcode = value
+
+    # callbacks
+    def dock_status_callback(self, msg):
         """
         This function will run when the /check_dock_status topic receives a message
         """
         self.is_docked = msg.is_docked
         self.is_dock_visible = msg.dock_visible
+
+    def ir_opcode_callback(self, msg):
+        """
+        This function will run when the /ir_opcode topic receives a message
+        """
+        print(f"IR Opcode: {msg.opcode}")
+        print(f"From Sensor: {msg.sensor}")
+        self.last_ir_opcode = msg.opcode
 
     def transition_notes(self):
         """
@@ -172,7 +228,11 @@ class Roomba(Node):
 
     def drive(self):
         """
-        Undock and Drive the robot forward half a meter
+        This function will drive the robot around
+        1. Undock
+        2. Drive forward
+        3. Rotate in a random direction
+        4. Drive forward
         """
         print("Driving")
         # Read current dock status
@@ -191,8 +251,22 @@ class Roomba(Node):
             # Drive
             self.drive_ac.wait_for_server()
             drive_goal = DriveDistance.Goal()
-            drive_goal.distance = 0.2  # meter
+            drive_goal.distance = 0.66  # meter
             self.drive_ac.send_goal(drive_goal)
+
+            print("Initial undocking maneuver complete")
+            self.rotate_ac.wait_for_server()
+            # Rotate in a random direction between -pi and pi
+            angle = random.uniform(-math.pi, math.pi)
+            rotate_goal = RotateAngle.Goal()
+            rotate_goal.angle = angle
+            print(f"Rotating {angle} radians")
+            self.rotate_ac.send_goal(rotate_goal)
+            print("Rotation Complete")
+            # Drive
+            self.drive_ac.wait_for_server()
+            drive_goal = DriveDistance.Goal()
+            drive_goal.distance = 0.5
 
     def find_dock(self):
         """
@@ -201,7 +275,7 @@ class Roomba(Node):
         print("Finding Dock")
         # return early if we are already docked
         if to_bool(self.is_dock_visible):
-            print("Dock is visible, docking...")
+            print("Dock is visible, aligning...")
             return
 
         # Rotate 360 degrees in place
@@ -229,9 +303,6 @@ def main(args=None):
     rclpy.init(args=args)
     namespace = os.environ.get("BOWSER_NAME", "create3_05F8")
     roomba = Roomba(namespace)
-    # rclpy.spin(roomba)
-    # roomba.destroy_node()
-    # rclpy.shutdown()
 
     executor = MultiThreadedExecutor(2)
     executor.add_node(roomba)
