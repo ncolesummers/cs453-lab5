@@ -97,6 +97,7 @@ class Roomba(Node):
             self.drive_ac.wait_for_server()
             drive_goal = DriveDistance.Goal()
             drive_goal.distance = 1.0
+            self.drive_ac.send_goal(drive_goal)
 
     def dock_from_lib(self):
         """
