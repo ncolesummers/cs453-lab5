@@ -13,8 +13,10 @@ class KeyCommander(Node):
     callbacks to be executed when they are pressed.
     """
 
-    def __init__(self, key_callbacks=[]):
+    def __init__(self, key_callbacks=None):
         super().__init__("figure_four_key_commander")
+        if key_callbacks is None:
+            key_callbacks = []
         self._key_pressed_publisher = self.create_publisher(String, "key_pressed", 10)
 
         # add callbacks that are registered with keys

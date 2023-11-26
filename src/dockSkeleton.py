@@ -27,12 +27,12 @@ sensor = DockStatusPublisher(namespace)
 
 
 class Roomba(Node):
-    def __init__(self, namespace):
+    def __init__(self, ns):
         super().__init__("robot")
 
         # Callback Groups
-        cb_Subscripions = MutuallyExclusiveCallbackGroup()
-        cb_Actions = MutuallyExclusiveCallbackGroup()
+        cb_subscriptions = MutuallyExclusiveCallbackGroup()
+        cb_actions = MutuallyExclusiveCallbackGroup()
 
         # Subscriptions
         self.subscription = self.create_subscription(
@@ -40,21 +40,21 @@ class Roomba(Node):
             "/check_dock_status",
             self.listener_callback,
             10,
-            callback_group=cb_Subscripions,
+            callback_group=cb_subscriptions,
         )
 
         # Actions
         self.undock_ac = ActionClient(
-            self, Undock, f"/{namespace}/undock", callback_group=cb_Actions
+            self, Undock, f"/{ns}/undock", callback_group=cb_actions
         )
         self.drive_ac = ActionClient(
             self,
             DriveDistance,
-            f"/{namespace}/drive_distance",
-            callback_group=cb_Actions,
+            f"/{ns}/drive_distance",
+            callback_group=cb_actions,
         )
         self.dock_ac = ActionClient(
-            self, irobot_create_msgs.action.Dock, f"/{namespace}/dock"
+            self, irobot_create_msgs.action.Dock, f"/{ns}/dock"
         )
 
     def listener_callback(self, msg):
@@ -80,7 +80,7 @@ class Roomba(Node):
         dock_status = sensor.poll()  # Read current dock status
         print(f"dock_status: {dock_status}")
         # Undock if docked
-        if dock_status == True:
+        if dock_status:
             self.undock()
             print("Undocking complete...")
             # Drive
@@ -109,7 +109,7 @@ class Roomba(Node):
         # dock_goal = irobot_create_msgs.action.Dock.Goal()
         # self.dock_ac.send_goal(dock_goal)
 
-    def dock_reimplemented(self):
+    def dock_reimplemented(self, i=None):
         """
         Attempt to dock the robot.
         If it fails, it will drive forward 0.5 meters and try again.
@@ -134,7 +134,15 @@ if __name__ == "__main__":
     exec.add_node(roomba)
     exec.add_node(sensor)
     start = "S"
-    key_callback = print(f"Pressed {start}")
+
+
+    def key_callback():
+        """
+        Callback for when a key is pressed
+        """
+        roomba.drive()
+
+
     # key_callback = roomba.drive
     keycom = KeyCommander(
         [
