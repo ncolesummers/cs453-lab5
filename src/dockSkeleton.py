@@ -140,6 +140,7 @@ if __name__ == "__main__":
         """
         Callback for when a key is pressed
         """
+        print("Key pressed")
         roomba.drive()
 
 
