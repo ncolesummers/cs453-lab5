@@ -130,9 +130,9 @@ class Roomba(Node):
 
 if __name__ == "__main__":
     roomba = Roomba(namespace)
-    exec = MultiThreadedExecutor(3)
-    exec.add_node(roomba)
-    exec.add_node(sensor)
+    executor = MultiThreadedExecutor(3)
+    executor.add_node(roomba)
+    executor.add_node(sensor)
     start = "S"
 
 
@@ -157,6 +157,6 @@ if __name__ == "__main__":
     # roomba.dock()
     # Try/Except to shutdown "gracefully"
     try:
-        exec.spin()
+        executor.spin()
     except KeyboardInterrupt:
         rclpy.shutdown()
