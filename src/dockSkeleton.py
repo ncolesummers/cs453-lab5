@@ -4,31 +4,28 @@ from rclpy.node import Node
 from rclpy.action.client import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from std_msgs.msg import Header
+from builtin_interfaces.msg import Duration
 
 # Create3 packages
 import irobot_create_msgs
-from irobot_create_msgs.action import DriveDistance, Undock
-
-# Your ROS Node packages
-from check_sensor import DockStatusPublisher
-
-# Garrett packages (Easy program start)
-from pynput.keyboard import KeyCode
-from key_commander import KeyCommander
+from irobot_create_msgs.action import AudioNoteSequence, DriveDistance, Undock
+from irobot_create_msgs.msg import AudioNote, AudioNoteVector, DockStatus
 
 # Python packages
-from std_msgs.msg import String
 import os
+import time
 
-# Globals
-rclpy.init()
-namespace = os.environ.get("BOWSER_NAME", "create3_05F8")
-sensor = DockStatusPublisher(namespace)
+from toBool import to_bool
 
 
 class Roomba(Node):
     def __init__(self, ns):
         super().__init__("robot")
+
+        self._is_docked = None
+        self._is_dock_visible = None
+        self._busy = False
 
         # Callback Groups
         cb_subscriptions = MutuallyExclusiveCallbackGroup()
@@ -36,7 +33,7 @@ class Roomba(Node):
 
         # Subscriptions
         self.subscription = self.create_subscription(
-            String,
+            DockStatus,
             "/check_dock_status",
             self.listener_callback,
             10,
@@ -53,15 +50,103 @@ class Roomba(Node):
             f"/{ns}/drive_distance",
             callback_group=cb_actions,
         )
-        self.dock_ac = ActionClient(
-            self, irobot_create_msgs.action.Dock, f"/{ns}/dock"
+        self.audio_sequence_ac = ActionClient(
+            self,
+            AudioNoteSequence,
+            f"/{ns}/audio_note_sequence",
+            callback_group=cb_actions,
         )
+
+        # Timer Loop since we need a callback for drive
+        self.timer = self.create_timer(10, self.patrol)  # seconds
+
+    @property
+    def is_docked(self) -> bool:
+        """
+        Returns the current dock status of the robot
+        """
+        return self._is_docked
+
+    @is_docked.setter
+    def is_docked(self, value):
+        """
+        Sets the current dock status of the robot
+        """
+        self._is_docked = value
+
+    @property
+    def is_dock_visible(self) -> bool:
+        """
+        Returns the current dock visibility of the robot
+        """
+        return self._is_dock_visible
+
+    @is_dock_visible.setter
+    def is_dock_visible(self, value):
+        """
+        Sets the current dock visibility of the robot
+        """
+        self._is_dock_visible = value
+
+    @property
+    def busy(self) -> bool:
+        """
+        Returns the current busy status of the robot
+        """
+        return self._busy
+
+    @busy.setter
+    def busy(self, value):
+        """
+        Sets the current busy status of the robot
+        """
+        self._busy = value
 
     def listener_callback(self, msg):
         """
-        This function will run when the subscription receives a message from the publisher
+        This function will run when the /check_dock_status topic receives a message
         """
-        print("I got: ", msg.data)
+        self.is_docked = msg.is_docked
+        self.is_dock_visible = msg.dock_visible
+
+    def transition_notes(self):
+        """
+        Play a few notes to indicate a transition
+        """
+        print("Playing transition notes")
+        self.audio_sequence_ac.wait_for_server()
+        duration = Duration(sec=1, nanosec=0)
+        audio_goal = AudioNoteSequence.Goal()
+        audio_goal.iterations = 1
+        audio_goal.note_sequence = AudioNoteVector(
+            header=Header(frame_id="notes"),
+            notes=[
+                AudioNote(frequency=100, max_runtime=duration),
+                AudioNote(frequency=50, max_runtime=duration),
+            ],
+            append=False,
+        )
+        self.audio_sequence_ac.send_goal(audio_goal)
+
+    def patrol(self):
+        """
+        This function will run every time the timer is triggered
+        """
+        if self.busy:
+            print("Busy, skipping patrol...")
+            return
+        self.busy = True
+        print("Patrolling...")
+        self.transition_notes()
+        #TODO may
+        self.drive()
+        print("Mission Complete. Returning to dock...")
+        self.transition_notes()
+        self.find_dock()
+        print("Dock Found. Docking...")
+        self.dock()
+        print("Docking Complete. Lab Complete.")
+        self.busy = False
 
     def undock(self):
         """
@@ -74,90 +159,72 @@ class Roomba(Node):
 
     def drive(self):
         """
-        Undock and Drive the robot forward 1 meter
+        Undock and Drive the robot forward half a meter
         """
         print("Driving")
-        dock_status = sensor.poll()  # Read current dock status
-        print(f"dock_status: {dock_status}")
-        # Undock if docked
-        if dock_status:
+        # Read current dock status
+        print(f"dock_status: {self.is_docked}")
+        i = 0
+        while self.is_docked is None or i > 3:
+            print("docking dependency not ready, waiting...")
+            print(f"dock_status: {self.is_docked}")
+            time.sleep(2)
+            i += 1
+
+        if to_bool(self.is_docked):
+            print("Undocking...")
             self.undock()
             print("Undocking complete...")
             # Drive
             self.drive_ac.wait_for_server()
             drive_goal = DriveDistance.Goal()
-            drive_goal.distance = 1.0  # 1 meter
+            drive_goal.distance = 0.2  # meter
             self.drive_ac.send_goal(drive_goal)
 
-            sensor.poll()  # Read current dock status
-            print(f"dock_status: {dock_status}")
-        else:
-            print("Not docked, driving...")
-            # Drive
-            self.drive_ac.wait_for_server()
-            drive_goal = DriveDistance.Goal()
-            drive_goal.distance = 1.0
-            self.drive_ac.send_goal(drive_goal)
-
-    def dock_from_lib(self):
+    def find_dock(self):
         """
-        Attempt to dock the robot.
-        If it fails, it will drive forward 0.5 meters and try again.
+        Drive the robot until it finds the dock
         """
-        # see if we are already docked
+        print("Finding Dock")
+        # return early if we are already docked
+        if to_bool(self.is_dock_visible):
+            print("Dock is visible, docking...")
+            return
 
-        # self.dock_ac.wait_for_server()
-        # dock_goal = irobot_create_msgs.action.Dock.Goal()
-        # self.dock_ac.send_goal(dock_goal)
+        # Rotate 360 degrees in place
+        self.drive_ac.wait_for_server()
+        raise NotImplementedError("TODO: Implement find_dock")
 
-    def dock_reimplemented(self, i=None):
+    def dock(self):
         """
-        Attempt to dock the robot.
-        If it fails, it will drive forward 0.5 meters and try again.
+        Dock the robot
         """
-        dock_status = sensor.poll()
-        # TODO: Check if docked and return if we are
-        # Docking is hard, so we will try 3 times
-        while i < 3 and dock_status != "docked":
-            print("Searching for Dock...")
-            # TODO: Find the dock and dock
-            print("Moving to dock...")
-            # TODO: Check if docked and return if we are
-            dock_status = sensor.poll()
+        print("Docking")
+        # return early if we are already docked
+        if to_bool(self.is_docked):
+            print("Already docked, skipping...")
+            return
 
-            print("Failed to dock, trying again...")
-            i += 1
+        # Drive
+        self.drive_ac.wait_for_server()
+        drive_goal = DriveDistance.Goal()
+        drive_goal.distance = 0.2
 
 
-if __name__ == "__main__":
+def main(args=None):
+    # Globals
+    rclpy.init(args=args)
+    namespace = os.environ.get("BOWSER_NAME", "create3_05F8")
     roomba = Roomba(namespace)
-    executor = MultiThreadedExecutor(3)
+    executor = MultiThreadedExecutor(2)
     executor.add_node(roomba)
-    executor.add_node(sensor)
-    start = "S"
 
-
-    def key_callback():
-        """
-        Callback for when a key is pressed
-        """
-        print("Key pressed")
-        roomba.drive()
-
-
-    # key_callback = roomba.drive
-    keycom = KeyCommander(
-        [
-            (KeyCode(char=start), key_callback),
-        ]
-    )
-    print(f"Press '{start}' to start")
-    # dock_status = sensor.poll()
-    # print(f"dock_status: {dock_status}")
-    # roomba.drive()
-    # roomba.dock()
     # Try/Except to shutdown "gracefully"
     try:
         executor.spin()
     except KeyboardInterrupt:
         rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
