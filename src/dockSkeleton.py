@@ -9,7 +9,7 @@ from builtin_interfaces.msg import Duration
 
 # Create3 packages
 import irobot_create_msgs
-from irobot_create_msgs.action import AudioNoteSequence, DriveDistance, Undock
+from irobot_create_msgs.action import AudioNoteSequence, DriveDistance, RotateAngle, Undock
 from irobot_create_msgs.msg import AudioNote, AudioNoteVector, DockStatus
 
 # Python packages
@@ -30,6 +30,7 @@ class Roomba(Node):
         # Callback Groups
         cb_subscriptions = MutuallyExclusiveCallbackGroup()
         cb_actions = MutuallyExclusiveCallbackGroup()
+        cb_notes = MutuallyExclusiveCallbackGroup()
 
         # Subscriptions
         self.subscription = self.create_subscription(
@@ -41,20 +42,30 @@ class Roomba(Node):
         )
 
         # Actions
+        # Undock
         self.undock_ac = ActionClient(
             self, Undock, f"/{ns}/undock", callback_group=cb_actions
         )
+        # Drive
         self.drive_ac = ActionClient(
             self,
             DriveDistance,
             f"/{ns}/drive_distance",
             callback_group=cb_actions,
         )
+        # Rotate
+        self.rotate_ac = ActionClient(
+            self,
+            DriveDistance,
+            f"/{ns}/rotate",
+            callback_group=cb_actions,
+        )
+        # Audio
         self.audio_sequence_ac = ActionClient(
             self,
             AudioNoteSequence,
             f"/{ns}/audio_note_sequence",
-            callback_group=cb_actions,
+            callback_group=cb_notes,
         )
 
         # Timer Loop since we need a callback for drive
@@ -115,18 +126,20 @@ class Roomba(Node):
         """
         print("Playing transition notes")
         self.audio_sequence_ac.wait_for_server()
-        duration = Duration(sec=1, nanosec=0)
+        # half a second in nanoseconds
+        half_sec = Duration(sec=0, nanosec=500000000)
+        duration = Duration(sec=0, nanosec=0)
         audio_goal = AudioNoteSequence.Goal()
         audio_goal.iterations = 1
         audio_goal.note_sequence = AudioNoteVector(
             header=Header(frame_id="notes"),
             notes=[
-                AudioNote(frequency=100, max_runtime=duration),
-                AudioNote(frequency=50, max_runtime=duration),
+                AudioNote(frequency=100, max_runtime=half_sec),
+                AudioNote(frequency=50, max_runtime=half_sec),
             ],
             append=False,
         )
-        self.audio_sequence_ac.send_goal(audio_goal)
+        self.audio_sequence_ac.send_goal_async(audio_goal)
 
     def patrol(self):
         """
@@ -138,7 +151,7 @@ class Roomba(Node):
         self.busy = True
         print("Patrolling...")
         self.transition_notes()
-        #TODO may
+        # TODO may
         self.drive()
         print("Mission Complete. Returning to dock...")
         self.transition_notes()
@@ -152,10 +165,10 @@ class Roomba(Node):
         """
         Undock the robot
         """
-        print("Undocking")
         self.undock_ac.wait_for_server()  # Wait till its ready
         undock_goal = Undock.Goal()  # Make goal
         self.undock_ac.send_goal(undock_goal)  # Send goal blocking
+        return "Undocking Complete"
 
     def drive(self):
         """
@@ -165,7 +178,7 @@ class Roomba(Node):
         # Read current dock status
         print(f"dock_status: {self.is_docked}")
         i = 0
-        while self.is_docked is None or i > 3:
+        while self.is_docked is None and i < 3:
             print("docking dependency not ready, waiting...")
             print(f"dock_status: {self.is_docked}")
             time.sleep(2)
@@ -173,8 +186,8 @@ class Roomba(Node):
 
         if to_bool(self.is_docked):
             print("Undocking...")
-            self.undock()
-            print("Undocking complete...")
+            complete = self.undock()
+            print(complete)
             # Drive
             self.drive_ac.wait_for_server()
             drive_goal = DriveDistance.Goal()
@@ -216,6 +229,10 @@ def main(args=None):
     rclpy.init(args=args)
     namespace = os.environ.get("BOWSER_NAME", "create3_05F8")
     roomba = Roomba(namespace)
+    # rclpy.spin(roomba)
+    # roomba.destroy_node()
+    # rclpy.shutdown()
+
     executor = MultiThreadedExecutor(2)
     executor.add_node(roomba)
 

@@ -10,6 +10,8 @@ from irobot_create_msgs.msg import DockStatus
 import os
 from toBool import to_bool
 
+DEBUG = True
+
 
 class DockStatusController(Node):
     """
@@ -18,6 +20,7 @@ class DockStatusController(Node):
 
     def __init__(self, ns, timer=True):
         super().__init__("publisher")
+
         print(f"Docking Controller created for {ns}...")
 
         # This is the data that will be published
@@ -58,13 +61,13 @@ class DockStatusController(Node):
     @property
     def is_docked(self) -> bool:
         """
-        This is the docking status of the robot"""
+        This is the docking status of the robot
+        """
         return self._is_docked
 
     @is_docked.setter
     def is_docked(self, value) -> None:
         self._is_docked = value
-        print(f"is_docked set to: {self._is_docked}")
 
     @property
     def is_dock_visible(self) -> bool:
@@ -88,7 +91,9 @@ class DockStatusController(Node):
         """
         This will be called everytime the subscriber recieves a new message from the topic
         """
-        print(f"Docking Subscriber recieved: {msg}")
+        if DEBUG:
+            print(f"Docking Subscriber recieved: {msg}")
+
         self.is_docked = msg.is_docked
         self.is_dock_visible = msg.dock_visible
 
@@ -101,8 +106,8 @@ class DockStatusController(Node):
             return
 
         msg = DockStatus()
-        print(f"Docking Publisher sending is_docked: {self.is_docked}")
-        print(f"Docking Publisher sending is_dock_visible: {self.is_dock_visible}")
+        if DEBUG:
+            print(f"Docking Publisher sending: {msg}")
 
         msg.is_docked = to_bool(self.is_docked)
         msg.dock_visible = to_bool(self.is_dock_visible)
