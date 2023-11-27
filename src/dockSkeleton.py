@@ -392,36 +392,36 @@ class Roomba(Node):
             print("We are close to the dock. Checking op codes...")
             if self.last_ir_opcode == OPCODES["FF_Both"]:
                 print("We see both buoys, driving forward a bit...")
-                self.drive_forward(DISTANCES["TINY"])
+                self.drive_forward(distance=DISTANCES["TINY"])
 
             elif self.last_ir_opcode == OPCODES["FF_GB"]:
                 print(
                     "Force Field and Green Buoy. We are close and need to rotate in the positive direction..."
                 )
-                self.drive_arc(DISTANCES["TINY"], ANGLES["EIGHTH"])
+                self.drive_arc(radius=DISTANCES["TINY"], theta=ANGLES["EIGHTH"])
 
             elif self.last_ir_opcode == OPCODES["FF_RB"]:
                 print(
                     "Force Field and Red Buoy. We are close and need to rotate in the negative direction..."
                 )
-                self.drive_arc(DISTANCES["TINY"], ANGLES["EIGHTH"])
+                self.drive_arc(radius=DISTANCES["TINY"], theta=ANGLES["EIGHTH"])
 
             elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
                 print(
                     "Green Buoy. We are far and need to rotate in the positive direction..."
                 )
-                self.drive_arc(DISTANCES["SHORT"], ANGLES["EIGHTH"])
+                self.drive_arc(radius=DISTANCES["SHORT"], theta=ANGLES["EIGHTH"])
 
             elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
                 print(
                     "Red Buoy. We are far and need to rotate in the negative direction..."
                 )
-                self.drive_arc(DISTANCES["SHORT"], ANGLES["EIGHTH"])
+                self.drive_arc(radius=DISTANCES["SHORT"], theta=ANGLES["EIGHTH"])
 
                 # We are aligned if we see both buoys
             if self.last_ir_opcode == OPCODES["BUOY_BOTH"]:
                 print("We see both buoys, driving forward a bit...")
-                self.drive_forward(DISTANCES["SHORT"])
+                self.drive_forward(distance=DISTANCES["SHORT"])
 
         # Long Range Sensor
         elif self.last_ir_sensor == OPCODES["SENSOR_DIRECTIONAL_FRONT"]:
@@ -429,39 +429,46 @@ class Roomba(Node):
             # We are aligned if we see both buoys
             if self.last_ir_opcode == OPCODES["BUOY_BOTH"]:
                 print("We see both buoys, driving forward a bit...")
-                self.drive_forward(DISTANCES["MEDIUM"])
+                self.drive_forward(distance=DISTANCES["MEDIUM"])
 
             elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
                 print(
                     "Green Buoy. We are far and need to rotate in the positive direction..."
                 )
                 # EIGHTH turn since we are far from the dock.
-                self.drive_arc(ANGLES["EIGHTH"], DISTANCES["MEDIUM"])
+                self.drive_arc(radius=DISTANCES["MEDIUM"], theta=ANGLES["EIGHTH"])
 
             elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
                 print(
                     "Red Buoy. We are far and need to rotate in the negative direction..."
                 )
                 # EIGHTH turn since we are far from the dock.
-                self.drive_arc(-ANGLES["EIGHTH"], DISTANCES["MEDIUM"])
+                self.drive_arc(radius=DISTANCES["MEDIUM"], theta=-ANGLES["EIGHTH"])
 
             elif self.last_ir_opcode == OPCODES["FORCE_FIELD"]:
                 print("Force Field Detected, we are close....")
                 # Big turn since we are close and don't see any buoys
                 # choose one or -1 randomly since we don't know which direction we are facing
                 self.drive_arc(
-                    ANGLES["HALF"] * random.choice([1, -1]), DISTANCES["SHORT"]
+                    radius=DISTANCES["SHORT"],
+                    theta=ANGLES["HALF"] * random.choice([1, -1]),
                 )
 
             elif self.last_ir_opcode == OPCODES["FF_GB"]:
                 print("Force Field and Green Buoy. Rotate in the positive direction...")
                 # EIGHTH turn since we are far from the dock.
-                self.drive_arc(ANGLES["EIGHTH"], DISTANCES["SHORT"])
+                self.drive_arc(
+                    radius=DISTANCES["SHORT"],
+                    theta=ANGLES["EIGHTH"],
+                )
 
             elif self.last_ir_opcode == OPCODES["FF_RB"]:
                 print("Force Field and Red Buoy. Rotate in the negative direction...")
                 # EIGHTH turn since we are far from the dock.
-                self.drive_arc(-ANGLES["EIGHTH"], DISTANCES["SHORT"])
+                self.drive_arc(
+                    radius=DISTANCES["SHORT"],
+                    theta=-ANGLES["EIGHTH"],
+                )
 
 
 def main(args=None):
