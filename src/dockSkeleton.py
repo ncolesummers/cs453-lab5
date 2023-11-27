@@ -1,5 +1,6 @@
 # ROS packages
 import math
+import random
 import rclpy
 from rclpy.node import Node
 from rclpy.action.client import ActionClient
@@ -52,6 +53,7 @@ DISTANCES = {
 ANGLES = {
     "EIGHTH": math.pi / 4,
     "QUARTER": math.pi / 2,
+    "THIRD": (2 * math.pi) / 3,
     "HALF": math.pi,
     "FULL": math.pi * 2,
 }
@@ -226,10 +228,32 @@ class Roomba(Node):
         audio_goal.note_sequence = AudioNoteVector(
             header=Header(frame_id="notes"),
             notes=[
-                AudioNote(frequency=100, max_runtime=duration),
-                AudioNote(frequency=50, max_runtime=duration),
+                AudioNote(frequency=100, max_runtime=half_sec),
+                AudioNote(frequency=50, max_runtime=half_sec),
             ],
-            append=False,
+            append=True,
+        )
+        self.audio_sequence_ac.send_goal_async(audio_goal)
+
+    def found_dock_notes(self):
+        """
+        Play a few notes to indicate a transition
+        """
+        print("Playing found dock notes")
+        self.audio_sequence_ac.wait_for_server()
+        # half a second in nanoseconds
+        half_sec = Duration(sec=0, nanosec=500000000)
+        duration = Duration(sec=0, nanosec=0)
+        audio_goal = AudioNoteSequence.Goal()
+        audio_goal.iterations = 1
+        audio_goal.note_sequence = AudioNoteVector(
+            header=Header(frame_id="notes"),
+            notes=[
+                AudioNote(frequency=150, max_runtime=half_sec),
+                AudioNote(frequency=100, max_runtime=half_sec),
+                AudioNote(frequency=50, max_runtime=half_sec),
+            ],
+            append=True,
         )
         self.audio_sequence_ac.send_goal_async(audio_goal)
 
@@ -301,6 +325,7 @@ class Roomba(Node):
             # Check if dock is visible
             if to_bool(self.is_dock_visible):
                 print("Dock is visible, checking querying sensors...")
+                self.found_dock_notes()
                 # Close Range Sensor
                 if self.last_ir_sensor == OPCODES["SENSOR_OMNI"]:
                     print("We are close to the dock. Checking op codes...")
@@ -310,7 +335,7 @@ class Roomba(Node):
 
                     elif self.last_ir_opcode == OPCODES["FF_GB"]:
                         print(
-                            "We are close and need to rotate in the positive direction..."
+                            "Force Field and Green Buoy. We are close and need to rotate in the positive direction..."
                         )
                         # quarter turn since we are close to the dock.
                         self.turn(ANGLES["EIGHTH"])
@@ -318,7 +343,7 @@ class Roomba(Node):
 
                     elif self.last_ir_opcode == OPCODES["FF_RB"]:
                         print(
-                            "We are close and need to rotate in the negative direction..."
+                            "Force Field and Red Buoy. We are close and need to rotate in the negative direction..."
                         )
                         # EIGHTH turn since we are close to the dock.
                         self.turn(-ANGLES["EIGHTH"])
@@ -326,24 +351,24 @@ class Roomba(Node):
 
                     elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
                         print(
-                            "We are far and need to rotate in the positive direction..."
+                            "Green Buoy. We are far and need to rotate in the positive direction..."
                         )
-                        # EIGTH turn since we are far from the dock.
+                        # EIGHTH turn since we are far from the dock.
                         self.turn(ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["SHORT"])
+                        self.drive_forward(DISTANCES["MEDIUM"])
 
                     elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
                         print(
-                            "We are far and need to rotate in the negative direction..."
+                            "Red Buoy. We are far and need to rotate in the negative direction..."
                         )
-                        # EIGTH turn since we are far from the dock.
+                        # EIGHTH turn since we are far from the dock.
                         self.turn(-ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["SHORT"])
+                        self.drive_forward(DISTANCES["MEDIUM"])
 
                         # We are aligned if we see both buoys
                     if self.last_ir_opcode == OPCODES["BUOY_BOTH"]:
                         print("We see both buoys, driving forward a bit...")
-                        self.drive_forward(DISTANCES["SHORT"])
+                        self.drive_forward(DISTANCES["MEDIUM"])
 
                 # Long Range Sensor
                 elif self.last_ir_sensor == OPCODES["SENSOR_DIRECTIONAL_FRONT"]:
@@ -355,7 +380,7 @@ class Roomba(Node):
 
                     elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
                         print(
-                            "We are far and need to rotate in the positive direction..."
+                            "Green Buoy. We are far and need to rotate in the positive direction..."
                         )
                         # EIGTH turn since we are far from the dock.
                         self.turn(ANGLES["EIGHTH"])
@@ -363,11 +388,34 @@ class Roomba(Node):
 
                     elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
                         print(
-                            "We are far and need to rotate in the negative direction..."
+                            "Red Buoy. We are far and need to rotate in the negative direction..."
                         )
                         # EIGTH turn since we are far from the dock.
                         self.turn(-ANGLES["EIGHTH"])
                         self.drive_forward(DISTANCES["MEDIUM"])
+
+                    elif self.last_ir_opcode == OPCODES["FORCE_FIELD"]:
+                        print("Force Field Detected, we are close....")
+                        # Big turn since we are close and don't see any buoys
+                        # choose one or -1 randomly since we don't know which direction we are facing
+                        self.turn(ANGLES["HALF"] * random.choice([1, -1]))
+                        self.drive_forward(DISTANCES["SHORT"])
+
+                    elif self.last_ir_opcode == OPCODES["FF_GB"]:
+                        print(
+                            "Force Field and Green Buoy. Rotate in the positive direction..."
+                        )
+                        # EIGHTH turn since we are far from the dock.
+                        self.turn(ANGLES["EIGHTH"])
+                        self.drive_forward(DISTANCES["SHORT"])
+
+                    elif self.last_ir_opcode == OPCODES["FF_RB"]:
+                        print(
+                            "Force Field and Red Buoy. Rotate in the negative direction..."
+                        )
+                        # EIGHTH turn since we are far from the dock.
+                        self.turn(-ANGLES["EIGHTH"])
+                        self.drive_forward(DISTANCES["SHORT"])
             else:
                 print("Dock is not visible, rotating...")
                 # Rotate in a random direction between -pi and pi
@@ -376,8 +424,9 @@ class Roomba(Node):
                 if not to_bool(self.is_dock_visible):
                     # If dock is still not visible, drive forward a bit
                     # Short Drive
-                    self.drive_forward(DISTANCES["SHORT"])
+                    self.drive_forward(DISTANCES["MEDIUM"])
                     print("Random Driving Complete")
+            time.sleep(1)
 
     def drive_forward(self, distance):
         """
@@ -389,14 +438,14 @@ class Roomba(Node):
         drive_goal.distance = distance
         self.drive_ac.send_goal(drive_goal)
 
-    def turn(self, angle):
+    def turn(self, theta):
         """
         Rotate the robot a certain angle
         """
-        print(f"Rotating {angle} radians")
+        print(f"Rotating {theta} radians")
         self.rotate_ac.wait_for_server()
         rotate_goal = RotateAngle.Goal()
-        rotate_goal.angle = angle
+        rotate_goal.angle = theta
         self.rotate_ac.send_goal(rotate_goal)
         print("Rotation Complete")
 
