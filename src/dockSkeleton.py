@@ -14,6 +14,7 @@ from builtin_interfaces.msg import Duration
 import irobot_create_msgs
 from irobot_create_msgs.action import (
     AudioNoteSequence,
+    DriveArc,
     DriveDistance,
     RotateAngle,
     Undock,
@@ -44,6 +45,7 @@ OPCODES = {
 }
 
 DISTANCES = {
+    "STEP": 0.1,  # meters
     "SHORT": 0.2,
     "MEDIUM": 0.5,
     "LONG": 0.66,
@@ -51,6 +53,7 @@ DISTANCES = {
 }
 
 ANGLES = {
+    "SIXTEENTH": math.pi / 8,  # radians
     "EIGHTH": math.pi / 4,
     "QUARTER": math.pi / 2,
     "THIRD": (2 * math.pi) / 3,
@@ -125,7 +128,7 @@ class Roomba(Node):
         )
 
         # Timer Loop since we need a callback for drive
-        self.timer = self.create_timer(5, self.patrol)  # seconds
+        self.timer = self.create_timer(3, self.patrol)  # seconds
 
     @property
     def is_docked(self) -> bool:
@@ -288,7 +291,7 @@ class Roomba(Node):
     def begin_drive(self):
         """
         This function will drive the robot around
-        1. Undock
+        1. Undock Action
         2. Drive forward
         3. Rotate in a random direction
         4. Drive forward
@@ -305,8 +308,7 @@ class Roomba(Node):
             complete = self.undock()
             print(complete)
             # Drive
-            # TODO: Drive forward an astronomical distance
-            self.drive_forward(DISTANCES["LONG"])
+            self.drive_forward(DISTANCES["ASTRONOMICAL"])
             print("Initial undocking maneuver complete")
 
             self.turn(random_angle())
@@ -317,137 +319,149 @@ class Roomba(Node):
     def find_dock(self):
         """
         Drive the robot until it finds the dock
-        This is a recursive function that will call itself until the robot docks
         """
         print("Finding Dock")
         # loop until we are docked
         while not to_bool(self.is_docked):
             # Check if dock is visible
             if to_bool(self.is_dock_visible):
-                print("Dock is visible, checking querying sensors...")
-                self.found_dock_notes()
-                # Close Range Sensor
-                if self.last_ir_sensor == OPCODES["SENSOR_OMNI"]:
-                    print("We are close to the dock. Checking op codes...")
-                    if self.last_ir_opcode == OPCODES["FF_Both"]:
-                        print("We see both buoys, driving forward a bit...")
-                        self.drive_forward(DISTANCES["SHORT"])
-
-                    elif self.last_ir_opcode == OPCODES["FF_GB"]:
-                        print(
-                            "Force Field and Green Buoy. We are close and need to rotate in the positive direction..."
-                        )
-                        # quarter turn since we are close to the dock.
-                        self.turn(ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["SHORT"])
-
-                    elif self.last_ir_opcode == OPCODES["FF_RB"]:
-                        print(
-                            "Force Field and Red Buoy. We are close and need to rotate in the negative direction..."
-                        )
-                        # EIGHTH turn since we are close to the dock.
-                        self.turn(-ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["SHORT"])
-
-                    elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
-                        print(
-                            "Green Buoy. We are far and need to rotate in the positive direction..."
-                        )
-                        # EIGHTH turn since we are far from the dock.
-                        self.turn(ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["MEDIUM"])
-
-                    elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
-                        print(
-                            "Red Buoy. We are far and need to rotate in the negative direction..."
-                        )
-                        # EIGHTH turn since we are far from the dock.
-                        self.turn(-ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["MEDIUM"])
-
-                        # We are aligned if we see both buoys
-                    if self.last_ir_opcode == OPCODES["BUOY_BOTH"]:
-                        print("We see both buoys, driving forward a bit...")
-                        self.drive_forward(DISTANCES["MEDIUM"])
-
-                # Long Range Sensor
-                elif self.last_ir_sensor == OPCODES["SENSOR_DIRECTIONAL_FRONT"]:
-                    print("We are far from the dock. Checking op codes...")
-                    # We are aligned if we see both buoys
-                    if self.last_ir_opcode == OPCODES["BUOY_BOTH"]:
-                        print("We see both buoys, driving forward a bit...")
-                        self.drive_forward(DISTANCES["MEDIUM"])
-
-                    elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
-                        print(
-                            "Green Buoy. We are far and need to rotate in the positive direction..."
-                        )
-                        # EIGTH turn since we are far from the dock.
-                        self.turn(ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["MEDIUM"])
-
-                    elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
-                        print(
-                            "Red Buoy. We are far and need to rotate in the negative direction..."
-                        )
-                        # EIGTH turn since we are far from the dock.
-                        self.turn(-ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["MEDIUM"])
-
-                    elif self.last_ir_opcode == OPCODES["FORCE_FIELD"]:
-                        print("Force Field Detected, we are close....")
-                        # Big turn since we are close and don't see any buoys
-                        # choose one or -1 randomly since we don't know which direction we are facing
-                        self.turn(ANGLES["HALF"] * random.choice([1, -1]))
-                        self.drive_forward(DISTANCES["SHORT"])
-
-                    elif self.last_ir_opcode == OPCODES["FF_GB"]:
-                        print(
-                            "Force Field and Green Buoy. Rotate in the positive direction..."
-                        )
-                        # EIGHTH turn since we are far from the dock.
-                        self.turn(ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["SHORT"])
-
-                    elif self.last_ir_opcode == OPCODES["FF_RB"]:
-                        print(
-                            "Force Field and Red Buoy. Rotate in the negative direction..."
-                        )
-                        # EIGHTH turn since we are far from the dock.
-                        self.turn(-ANGLES["EIGHTH"])
-                        self.drive_forward(DISTANCES["SHORT"])
+                self.hunt()
             else:
                 print("Dock is not visible, rotating...")
-                # Rotate in a random direction between -pi and pi
-                self.turn(random_angle())
-                # Check again if dock is visible after rotating
-                if not to_bool(self.is_dock_visible):
-                    # If dock is still not visible, drive forward a bit
-                    # Short Drive
-                    self.drive_forward(DISTANCES["MEDIUM"])
-                    print("Random Driving Complete")
-            time.sleep(1)
+                # keep track of how many times we rotate
+                self.scout()
+                time.sleep(0.25)
 
-    def drive_forward(self, distance):
+    def drive_forward(self, distance: float):
         """
         Drive forward a short distance
         """
         print(f"Driving Forward {distance} meters")
         self.drive_ac.wait_for_server()
-        drive_goal = DriveDistance.Goal()
-        drive_goal.distance = distance
+        drive_goal = DriveDistance.Goal(distance=distance, max_translation_speed=0.25)
+        self.drive_ac.send_goal(drive_goal)
+
+    def drive_arc(self, radius: float, theta: float):
+        """
+        Drive in an arc. Radius is in meters, theta is in radians.
+        """
+        print(f"Driving in an arc with radius {radius} and angle {theta}")
+        self.drive_ac.wait_for_server()
+        forward = 1
+        drive_goal = DriveArc.Goal(
+            translate_direction=forward,
+            radius=radius,
+            angle=theta,
+            max_translation_speed=0.25,
+        )
         self.drive_ac.send_goal(drive_goal)
 
     def turn(self, theta):
         """
         Rotate the robot a certain angle
         """
-        print(f"Rotating {theta} radians")
         self.rotate_ac.wait_for_server()
-        rotate_goal = RotateAngle.Goal()
-        rotate_goal.angle = theta
+        rotate_goal = RotateAngle.Goal(angle=theta, max_rotation_speed=1.0)
         self.rotate_ac.send_goal(rotate_goal)
         print("Rotation Complete")
+
+    def scout(self):
+        """
+        Search in place for the dock and move occasionally if we don't find it.
+        """
+        rotations = 0
+        # rotate until we see the dock
+        while not to_bool(self.is_dock_visible):
+            print("Rotating...")
+            self.turn(ANGLES["SIXTEENTH"])
+            rotations += 1
+            time.sleep(0.1)
+            # escape if we are stuck
+            if rotations > 10:
+                self.drive_forward(DISTANCES["SHORT"])
+                break
+
+    def hunt(self):
+        """
+        Drive the robot towards the dock once it has been found.
+        """
+        print("Hunting...")
+        self.found_dock_notes()
+        # Close Range Sensor
+        if self.last_ir_sensor == OPCODES["SENSOR_OMNI"]:
+            print("We are close to the dock. Checking op codes...")
+            if self.last_ir_opcode == OPCODES["FF_Both"]:
+                print("We see both buoys, driving forward a bit...")
+                self.drive_forward(DISTANCES["TINY"])
+
+            elif self.last_ir_opcode == OPCODES["FF_GB"]:
+                print(
+                    "Force Field and Green Buoy. We are close and need to rotate in the positive direction..."
+                )
+                self.drive_arc(DISTANCES["TINY"], ANGLES["EIGHTH"])
+
+            elif self.last_ir_opcode == OPCODES["FF_RB"]:
+                print(
+                    "Force Field and Red Buoy. We are close and need to rotate in the negative direction..."
+                )
+                self.drive_arc(DISTANCES["TINY"], ANGLES["EIGHTH"])
+
+            elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
+                print(
+                    "Green Buoy. We are far and need to rotate in the positive direction..."
+                )
+                self.drive_arc(DISTANCES["SHORT"], ANGLES["EIGHTH"])
+
+            elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
+                print(
+                    "Red Buoy. We are far and need to rotate in the negative direction..."
+                )
+                self.drive_arc(DISTANCES["SHORT"], ANGLES["EIGHTH"])
+
+                # We are aligned if we see both buoys
+            if self.last_ir_opcode == OPCODES["BUOY_BOTH"]:
+                print("We see both buoys, driving forward a bit...")
+                self.drive_forward(DISTANCES["SHORT"])
+
+        # Long Range Sensor
+        elif self.last_ir_sensor == OPCODES["SENSOR_DIRECTIONAL_FRONT"]:
+            print("We are far from the dock. Checking op codes...")
+            # We are aligned if we see both buoys
+            if self.last_ir_opcode == OPCODES["BUOY_BOTH"]:
+                print("We see both buoys, driving forward a bit...")
+                self.drive_forward(DISTANCES["MEDIUM"])
+
+            elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
+                print(
+                    "Green Buoy. We are far and need to rotate in the positive direction..."
+                )
+                # EIGHTH turn since we are far from the dock.
+                self.drive_arc(ANGLES["EIGHTH"], DISTANCES["MEDIUM"])
+
+            elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
+                print(
+                    "Red Buoy. We are far and need to rotate in the negative direction..."
+                )
+                # EIGHTH turn since we are far from the dock.
+                self.drive_arc(-ANGLES["EIGHTH"], DISTANCES["MEDIUM"])
+
+            elif self.last_ir_opcode == OPCODES["FORCE_FIELD"]:
+                print("Force Field Detected, we are close....")
+                # Big turn since we are close and don't see any buoys
+                # choose one or -1 randomly since we don't know which direction we are facing
+                self.drive_arc(
+                    ANGLES["HALF"] * random.choice([1, -1]), DISTANCES["SHORT"]
+                )
+
+            elif self.last_ir_opcode == OPCODES["FF_GB"]:
+                print("Force Field and Green Buoy. Rotate in the positive direction...")
+                # EIGHTH turn since we are far from the dock.
+                self.drive_arc(ANGLES["EIGHTH"], DISTANCES["SHORT"])
+
+            elif self.last_ir_opcode == OPCODES["FF_RB"]:
+                print("Force Field and Red Buoy. Rotate in the negative direction...")
+                # EIGHTH turn since we are far from the dock.
+                self.drive_arc(-ANGLES["EIGHTH"], DISTANCES["SHORT"])
 
 
 def main(args=None):
