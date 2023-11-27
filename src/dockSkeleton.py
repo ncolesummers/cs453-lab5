@@ -1,9 +1,11 @@
 # ROS packages
+import math
 import rclpy
 from rclpy.node import Node
 from rclpy.action.client import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import Header
 from builtin_interfaces.msg import Duration
 
@@ -12,11 +14,10 @@ import irobot_create_msgs
 from irobot_create_msgs.action import (
     AudioNoteSequence,
     DriveDistance,
-    IrOpcode,
     RotateAngle,
     Undock,
 )
-from irobot_create_msgs.msg import AudioNote, AudioNoteVector, DockStatus
+from irobot_create_msgs.msg import AudioNote, AudioNoteVector, DockStatus, IrOpcode
 
 # Python packages
 import os
@@ -29,8 +30,11 @@ OPCODES = {
     "FORCE_FIELD": 161,
     "VIRTUAL_WALL": 162,
     "BUOY_GREEN": 164,
+    "FF_GB": 165,  # Force Field and Green Buoy
     "BUOY_RED": 168,
+    "FF_RB": 169,  # Force Field and Red Buoy
     "BUOY_BOTH": 172,
+    "FF_Both": 173,  # Force Field and Both Buoys
     "EVAC_GREEN_FIELD": 244,
     "EVAC_RED_FIELD": 248,
     "EVAC_BOTH_FIELD": 252,
@@ -38,7 +42,21 @@ OPCODES = {
     "SENSOR_DIRECTIONAL_FRONT": 1,
 }
 
-HISTORY_SIZE = 3
+DISTANCES = {
+    "SHORT": 0.2,
+    "MEDIUM": 0.5,
+    "LONG": 0.66,
+    "ASTRONOMICAL": 1.0,
+}
+
+ANGLES = {
+    "EIGHTH": math.pi / 4,
+    "QUARTER": math.pi / 2,
+    "HALF": math.pi,
+    "FULL": math.pi * 2,
+}
+
+HISTORY_SIZE = 10
 
 
 class Roomba(Node):
@@ -49,6 +67,7 @@ class Roomba(Node):
         self._is_dock_visible = None
         self._busy = False
         self._last_ir_opcode = None
+        self._last_ir_sensor = None
 
         # Callback Groups
         cb_subscriptions = MutuallyExclusiveCallbackGroup()
@@ -70,7 +89,9 @@ class Roomba(Node):
             IrOpcode,
             f"/{ns}/ir_opcode",
             self.ir_opcode_callback,
-            HISTORY_SIZE,
+            QoSProfile(
+                depth=HISTORY_SIZE, reliability=QoSReliabilityPolicy.BEST_EFFORT
+            ),
             callback_group=cb_subscriptions,
         )
 
@@ -102,7 +123,7 @@ class Roomba(Node):
         )
 
         # Timer Loop since we need a callback for drive
-        self.timer = self.create_timer(10, self.patrol)  # seconds
+        self.timer = self.create_timer(5, self.patrol)  # seconds
 
     @property
     def is_docked(self) -> bool:
@@ -160,6 +181,20 @@ class Roomba(Node):
         """
         self._last_ir_opcode = value
 
+    @property
+    def last_ir_sensor(self) -> int:
+        """
+        Returns the last ir sensor received by the robot
+        """
+        return self._last_ir_sensor
+
+    @last_ir_sensor.setter
+    def last_ir_sensor(self, value):
+        """
+        Sets the last ir sensor received by the robot
+        """
+        self._last_ir_sensor = value
+
     # callbacks
     def dock_status_callback(self, msg):
         """
@@ -175,6 +210,7 @@ class Roomba(Node):
         print(f"IR Opcode: {msg.opcode}")
         print(f"From Sensor: {msg.sensor}")
         self.last_ir_opcode = msg.opcode
+        self.last_ir_sensor = msg.sensor
 
     def transition_notes(self):
         """
@@ -190,8 +226,8 @@ class Roomba(Node):
         audio_goal.note_sequence = AudioNoteVector(
             header=Header(frame_id="notes"),
             notes=[
-                AudioNote(frequency=100, max_runtime=half_sec),
-                AudioNote(frequency=50, max_runtime=half_sec),
+                AudioNote(frequency=100, max_runtime=duration),
+                AudioNote(frequency=50, max_runtime=duration),
             ],
             append=False,
         )
@@ -207,13 +243,12 @@ class Roomba(Node):
         self.busy = True
         print("Patrolling...")
         self.transition_notes()
-        # TODO may
-        self.drive()
+        print("Undock and Drive")
+        self.begin_drive()
         print("Mission Complete. Returning to dock...")
         self.transition_notes()
         self.find_dock()
-        print("Dock Found. Docking...")
-        self.dock()
+        self.transition_notes()
         print("Docking Complete. Lab Complete.")
         self.busy = False
 
@@ -226,7 +261,7 @@ class Roomba(Node):
         self.undock_ac.send_goal(undock_goal)  # Send goal blocking
         return "Undocking Complete"
 
-    def drive(self):
+    def begin_drive(self):
         """
         This function will drive the robot around
         1. Undock
@@ -234,68 +269,136 @@ class Roomba(Node):
         3. Rotate in a random direction
         4. Drive forward
         """
-        print("Driving")
         # Read current dock status
         print(f"dock_status: {self.is_docked}")
-        i = 0
-        while self.is_docked is None and i < 3:
+        while self.is_docked is None:
             print("docking dependency not ready, waiting...")
             print(f"dock_status: {self.is_docked}")
             time.sleep(2)
-            i += 1
 
         if to_bool(self.is_docked):
             print("Undocking...")
             complete = self.undock()
             print(complete)
             # Drive
-            self.drive_ac.wait_for_server()
-            drive_goal = DriveDistance.Goal()
-            drive_goal.distance = 0.66  # meter
-            self.drive_ac.send_goal(drive_goal)
-
+            # TODO: Drive forward an astronomical distance
+            self.drive_forward(DISTANCES["LONG"])
             print("Initial undocking maneuver complete")
-            self.rotate_ac.wait_for_server()
-            # Rotate in a random direction between -pi and pi
-            angle = random.uniform(-math.pi, math.pi)
-            rotate_goal = RotateAngle.Goal()
-            rotate_goal.angle = angle
-            print(f"Rotating {angle} radians")
-            self.rotate_ac.send_goal(rotate_goal)
-            print("Rotation Complete")
+
+            self.turn(random_angle())
+
             # Drive
-            self.drive_ac.wait_for_server()
-            drive_goal = DriveDistance.Goal()
-            drive_goal.distance = 0.5
+            self.drive_forward(DISTANCES["MEDIUM"])
 
     def find_dock(self):
         """
         Drive the robot until it finds the dock
+        This is a recursive function that will call itself until the robot docks
         """
         print("Finding Dock")
-        # return early if we are already docked
-        if to_bool(self.is_dock_visible):
-            print("Dock is visible, aligning...")
-            return
+        # loop until we are docked
+        while not to_bool(self.is_docked):
+            # Check if dock is visible
+            if to_bool(self.is_dock_visible):
+                print("Dock is visible, checking querying sensors...")
+                # Close Range Sensor
+                if self.last_ir_sensor == OPCODES["SENSOR_OMNI"]:
+                    print("We are close to the dock. Checking op codes...")
+                    if self.last_ir_opcode == OPCODES["FF_Both"]:
+                        print("We see both buoys, driving forward a bit...")
+                        self.drive_forward(DISTANCES["SHORT"])
 
-        # Rotate 360 degrees in place
-        self.drive_ac.wait_for_server()
-        raise NotImplementedError("TODO: Implement find_dock")
+                    elif self.last_ir_opcode == OPCODES["FF_GB"]:
+                        print(
+                            "We are close and need to rotate in the positive direction..."
+                        )
+                        # quarter turn since we are close to the dock.
+                        self.turn(ANGLES["EIGHTH"])
+                        self.drive_forward(DISTANCES["SHORT"])
 
-    def dock(self):
+                    elif self.last_ir_opcode == OPCODES["FF_RB"]:
+                        print(
+                            "We are close and need to rotate in the negative direction..."
+                        )
+                        # EIGHTH turn since we are close to the dock.
+                        self.turn(-ANGLES["EIGHTH"])
+                        self.drive_forward(DISTANCES["SHORT"])
+
+                    elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
+                        print(
+                            "We are far and need to rotate in the positive direction..."
+                        )
+                        # EIGTH turn since we are far from the dock.
+                        self.turn(ANGLES["EIGHTH"])
+                        self.drive_forward(DISTANCES["SHORT"])
+
+                    elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
+                        print(
+                            "We are far and need to rotate in the negative direction..."
+                        )
+                        # EIGTH turn since we are far from the dock.
+                        self.turn(-ANGLES["EIGHTH"])
+                        self.drive_forward(DISTANCES["SHORT"])
+
+                        # We are aligned if we see both buoys
+                    if self.last_ir_opcode == OPCODES["BUOY_BOTH"]:
+                        print("We see both buoys, driving forward a bit...")
+                        self.drive_forward(DISTANCES["SHORT"])
+
+                # Long Range Sensor
+                elif self.last_ir_sensor == OPCODES["SENSOR_DIRECTIONAL_FRONT"]:
+                    print("We are far from the dock. Checking op codes...")
+                    # We are aligned if we see both buoys
+                    if self.last_ir_opcode == OPCODES["BUOY_BOTH"]:
+                        print("We see both buoys, driving forward a bit...")
+                        self.drive_forward(DISTANCES["MEDIUM"])
+
+                    elif self.last_ir_opcode == OPCODES["BUOY_GREEN"]:
+                        print(
+                            "We are far and need to rotate in the positive direction..."
+                        )
+                        # EIGTH turn since we are far from the dock.
+                        self.turn(ANGLES["EIGHTH"])
+                        self.drive_forward(DISTANCES["MEDIUM"])
+
+                    elif self.last_ir_opcode == OPCODES["BUOY_RED"]:
+                        print(
+                            "We are far and need to rotate in the negative direction..."
+                        )
+                        # EIGTH turn since we are far from the dock.
+                        self.turn(-ANGLES["EIGHTH"])
+                        self.drive_forward(DISTANCES["MEDIUM"])
+            else:
+                print("Dock is not visible, rotating...")
+                # Rotate in a random direction between -pi and pi
+                self.turn(random_angle())
+                # Check again if dock is visible after rotating
+                if not to_bool(self.is_dock_visible):
+                    # If dock is still not visible, drive forward a bit
+                    # Short Drive
+                    self.drive_forward(DISTANCES["SHORT"])
+                    print("Random Driving Complete")
+
+    def drive_forward(self, distance):
         """
-        Dock the robot
+        Drive forward a short distance
         """
-        print("Docking")
-        # return early if we are already docked
-        if to_bool(self.is_docked):
-            print("Already docked, skipping...")
-            return
-
-        # Drive
+        print(f"Driving Forward {distance} meters")
         self.drive_ac.wait_for_server()
         drive_goal = DriveDistance.Goal()
-        drive_goal.distance = 0.2
+        drive_goal.distance = distance
+        self.drive_ac.send_goal(drive_goal)
+
+    def turn(self, angle):
+        """
+        Rotate the robot a certain angle
+        """
+        print(f"Rotating {angle} radians")
+        self.rotate_ac.wait_for_server()
+        rotate_goal = RotateAngle.Goal()
+        rotate_goal.angle = angle
+        self.rotate_ac.send_goal(rotate_goal)
+        print("Rotation Complete")
 
 
 def main(args=None):
