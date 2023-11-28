@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = "dockStatus"
+package_name = "dock"
 
 setup(
     name=package_name,
@@ -18,6 +18,6 @@ setup(
     license="MIT",
     tests_require=["pytest"],
     entry_points={
-        "console_scripts": [],
+        "console_scripts": ['dock = dock.check_sensor:main'],
     },
 )

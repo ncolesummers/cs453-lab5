@@ -1,11 +1,15 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>dockStatus</name>
+  <name>dock</name>
   <version>0.0.0</version>
-  <description>Adapter to slow down a create3 docking status topic</description>
+  <description>Dock Controller</description>
   <maintainer email="nsummers@uidaho.edu">ncolesummers</maintainer>
   <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msg</exec_depend>
+  <exec_depend>irobot_create_msgs</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

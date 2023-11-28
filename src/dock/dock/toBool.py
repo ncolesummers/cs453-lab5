@@ -1,11 +1,9 @@
 def to_bool(value) -> bool:
     """
-    Converts 'something' to boolean. Raises exception if it gets a string it doesn't handle.
+    Converts 'something' to a bool. Raises an exception if it gets a string it doesn't handle.
     Case is ignored for strings. These string values are handled:
     True: 'True', "1", "TRue", "yes", "y", "t"
     False: "", "0", "faLse", "no", "n", "f"
-    :param value:  something you want to evaluate as True or False
-    :return: Boolean representation of the value
     """
     if isinstance(value, bool):
         return value
