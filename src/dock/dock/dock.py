@@ -25,9 +25,6 @@ from irobot_create_msgs.msg import AudioNote, AudioNoteVector, DockStatus, IrOpc
 import os
 import time
 
-from toBool import to_bool
-from randomAngle import random_angle
-
 # Constants and Globals
 OPCODES = {
     "FORCE_FIELD": 161,
@@ -63,6 +60,35 @@ ANGLES = {
 }
 
 HISTORY_SIZE = 10
+
+
+# I tried to separate this shared functionality into its own file
+# but I couldn't get it to work with colcon
+# so I just copied it into both files since I'm out of time
+def to_bool(value) -> bool:
+    """
+    Converts 'something' to a bool. Raises an exception if it gets a string it doesn't handle.
+    Case is ignored for strings. These string values are handled:
+    True: 'True', "1", "TRue", "yes", "y", "t"
+    False: "", "0", "faLse", "no", "n", "f"
+    """
+    if isinstance(value, bool):
+        return value
+    if not value:
+        return False
+    if isinstance(value, str):
+        value = value.lower().strip()
+        if value in ["true", "1", "yes", "y", "t"]:
+            return True
+        if value in ["false", "0", "no", "n", "f"]:
+            return False
+        raise Exception(f"Invalid value for boolean conversion: {value}")
+    raise Exception(f"Invalid value for boolean conversion: {value}")
+
+
+def random_angle() -> float:
+    """Return a random angle between -pi and pi Radians"""
+    return random.uniform(-math.pi, math.pi)
 
 
 class Roomba(Node):

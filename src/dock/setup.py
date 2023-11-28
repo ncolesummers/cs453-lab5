@@ -18,6 +18,9 @@ setup(
     license="MIT",
     tests_require=["pytest"],
     entry_points={
-        "console_scripts": ['dock = dock.check_sensor:main'],
+        "console_scripts": [
+            'dock_status = dock.check_sensor:main',
+            'dock = dock.dock:main'
+            ],
     },
 )
