@@ -53,7 +53,7 @@ class DockStatusController(Node):
         _output = "check_dock_status"
 
         # This is what 'sends' the data to the 'main' node
-        print(f"Creating publisher for /{ns}/{_output}...")
+        print(f"Creating publisher for /{_output}...")
         try:
             self.publisher_ = self.create_publisher(
                 msg_type=DockStatus, topic=_output, qos_profile=10

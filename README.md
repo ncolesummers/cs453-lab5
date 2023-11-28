@@ -36,13 +36,25 @@ $ colcon build
 
 ### Run
 
-First spin up the dockStatus node:
+1. source the ROS2 environment:
 
 ```bash
-$ ros2 run lab
+$ source install/setup.bash
+```
+
+2. Spin up the dockStatus node:
+
+```bash
+$ ros2 run dockStatus dockStatus
+```
+
+3. Spin up the dock node:
+
+```bash
+$ ros2 run dock dock
 ```
 ## About
 
 ### Constants
 
-I use many constants defined at the top of the files. These step-based dictionaries are inspired by [Design Systems](https://www.interaction-design.org/literature/topics/design-systems) and are used to make the code more readable and maintainable.
+The dictionary constants at the top of the dock.py file are inspired by [Design Tokens](https://designsystem.digital.gov/design-tokens/). 
