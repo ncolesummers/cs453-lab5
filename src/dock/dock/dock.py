@@ -28,6 +28,7 @@ import time
 from toBool import to_bool
 from randomAngle import random_angle
 
+# Constants and Globals
 OPCODES = {
     "FORCE_FIELD": 161,
     "VIRTUAL_WALL": 162,

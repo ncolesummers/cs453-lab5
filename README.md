@@ -10,3 +10,7 @@
     A. Implement Docking Action Server
     B. Implement Docking Action Client
 3. Record Success
+
+## Constants
+
+I use many constants defined at the top of the files. These step-based dictionaries are inspired by [Design Systems](https://www.interaction-design.org/literature/topics/design-systems) and are used to make the code more readable and maintainable.
